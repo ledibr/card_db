@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 from utils import normalize, format_pandas
+from gui import SearchUI
 
 DATABASE = Path(__file__).parent / 'database.db'
 SCHEMA = Path(__file__).parent / 'schema.sql'
@@ -148,4 +149,6 @@ if __name__ == '__main__':
         build_db(args.files, args.build)
     elif args.mode == 'search':
         # print(vars(args))
-        query_db(vars(args))
+        # query_db(vars(args))
+        gui = SearchUI()
+        gui.run()
