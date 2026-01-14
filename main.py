@@ -2,22 +2,24 @@ import sqlite3
 import pandas as pd
 import argparse
 import os
+import unicodedata
 from pathlib import Path
-from utils import normalize, format_pandas
+# from utils import normalize, format_pandas
 from gui import SearchUI
 
 DATABASE = Path(__file__).parent / 'database.db'
 SCHEMA = Path(__file__).parent / 'schema.sql'
 SCRATCH_SCHEMA = Path(__file__).parent / 'schema_scratch.sql'
-ARGS_TO_COLUMNS = {
-    'year': 'Year',
-    'series': 'Series',
-    'set': 'Set',
-    'name': 'Name',
-    'team': 'Team',
-    'features': 'Features',
-    'min_count': 'Count',
-}
+
+
+def normalize(text):
+    text = unicodedata.normalize('NFD', text)
+    result = []
+    for i in range(len(text)):
+        if text[i].isalpha() or text[i].isspace():
+            result.append(text[i])
+    result = unicodedata.normalize('NFC', ''.join(result))
+    return result
 
 
 def excel_to_sql(entry: os.DirEntry, conn: sqlite3.Connection):
@@ -69,29 +71,6 @@ def build_db(files: str, init: bool = False):
                     excel_to_sql(entry, conn)
 
 
-# NOTE: needs to be completely reworked now that database has been overhauled!
-def query_db(query):
-    format_pandas()
-    conn = sqlite3.connect(DATABASE)
-
-    filters = {ARGS_TO_COLUMNS[k]: v for k, v in query.items() if k != 'mode' and v is not None}
-    filter_list = {k: f'({k} LIKE :{k.lower()})' for k in filters.keys()}
-    if 'Name' in filters:
-        filter_list['Name'] = '((Name LIKE :name) OR (Normalized_Name LIKE :name))'
-    parameters = {f'{k.lower()}': f'%{v}%' for k, v in filters.items() if k != 'Count'}
-    if 'Count' in filters:
-        filter_list['Count'] = '(Count >= :count)'
-        parameters['count'] = filters['Count']
-    filter_list = ' AND '.join(list(filter_list.values()))
-    # print(filter_list)
-
-    sql = "SELECT * FROM cards WHERE " + filter_list
-    df = pd.read_sql_query(sql, conn, params=parameters)
-    df = df.drop(columns=['index', 'Normalized_Name'])
-    print(f'{len(df)} cards found for query "{filters}".')
-    print(df)
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest='mode', required=True)
@@ -108,41 +87,6 @@ if __name__ == '__main__':
     )
 
     query_parser = subparsers.add_parser('search')
-    query_parser.add_argument(
-        '--year',
-        type=int,
-        default=None,
-    )
-    query_parser.add_argument(
-        '--series',
-        type=str,
-        default=None,
-    )
-    query_parser.add_argument(
-        '--set',
-        type=str,
-        default=None,
-    )
-    query_parser.add_argument(
-        '--name',
-        type=str,
-        default=None,
-    )
-    query_parser.add_argument(
-        '--team',
-        type=str,
-        default=None,
-    )
-    query_parser.add_argument(
-        '--features',
-        type=str,
-        default=None,
-    )
-    query_parser.add_argument(
-        '--min_count',
-        type=int,
-        default=None,
-    )
 
     args = parser.parse_args()
     if args.mode == 'upload':
@@ -150,5 +94,7 @@ if __name__ == '__main__':
     elif args.mode == 'search':
         # print(vars(args))
         # query_db(vars(args))
-        gui = SearchUI()
+        connection = sqlite3.connect(DATABASE)
+        gui = SearchUI(connection)
         gui.run()
+        # query_db(gui)

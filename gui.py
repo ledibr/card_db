@@ -1,20 +1,17 @@
 import tkinter as tk
 import tkinter.ttk as ttk
+import pandas as pd
 
-# implement and/or in text boxes later
-# output text window
-# search submit button bound to left click OR enter (see tutorial)
-# add sort by filter
-# add upload dialog!!!!!!!!!!!!!!!!
 
 class SearchUI:
-    def __init__(self):
+    def __init__(self, conn):
         # TODO: implement style changes (if so desired)
         self.root = tk.Tk()
         self.root.title('Database Search')
         self.content = ttk.Frame(self.root, padding=10)
         self.content.grid(column=0, row=0, sticky=tk.NSEW)
-        self.root.bind('<Return>', self.process)
+        self.root.bind('<Return>', self.process_query)
+        self.conn = conn
 
         self.topleft = ttk.Frame(self.content)
         self.topleft.grid(column=0, row=0, sticky=tk.NSEW)
@@ -58,7 +55,12 @@ class SearchUI:
 
         self.output = ttk.Labelframe(self.content, text='Results:')
         self.output.grid(column=0, row=1, sticky=tk.NSEW, columnspan=10)
+        self.results = tk.Text(self.output, width=100, height=15, wrap='none')
+        self.vert_scroll = ttk.Scrollbar(self.output, orient='vertical', command=self.results.yview)
+        self.horiz_scroll = ttk.Scrollbar(self.output, orient='horizontal', command=self.results.xview)
         self.populate_output()
+        self.output.columnconfigure(0, weight=1)
+        self.output.rowconfigure(0, weight=1)
 
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
@@ -67,18 +69,21 @@ class SearchUI:
         self.content.rowconfigure('all', weight=1)
         for child in self.content.winfo_children():
             # child.columnconfigure('all', weight=1)
-            # child.rowconfigure('all', weight=1)
+            # child.rowconfigure(1, weight=1)
             for grandchild in child.winfo_children():
                 grandchild.grid_configure(padx=3, pady=3)
                 for greatgrandchild in grandchild.winfo_children():
                     greatgrandchild.grid_configure(padx=3, pady=3)
+
+        self.query = None
+        self.parameters = {}
 
     def populate_match(self):
         ttk.Label(self.match, text='Match', anchor='w').grid(column=0, row=0, sticky=tk.NSEW)
         ttk.Label(self.match, text='of the following fields:', anchor='w').grid(column=2, row=0, sticky=tk.NSEW)
         # operator button
         operator = ttk.Combobox(self.match, textvariable=self.operator_val, width=4)
-        # operator.bind('<<ComboboxSelected>>', function)
+        operator.bind('<<ComboboxSelected>>', operator.selection_clear())
         operator['values'] = ('all', 'any')
         operator.state(['readonly'])
         operator.set('all')
@@ -115,19 +120,21 @@ class SearchUI:
         self.count_box()
 
         # submit button
-        ttk.Button(self.filters, text='Submit', command=self.process, default='active').grid(column=5, row=10, sticky=tk.NSEW)
+        ttk.Button(self.filters, text='Submit', command=self.process_query, default='active').grid(column=5, row=10, sticky=tk.NSEW)
 
     def populate_output(self):
         # output text box
-        results = tk.Text(self.output, width=100, height=15, wrap='none', state='disabled')
-        results.grid(column=0, row=0, sticky=tk.NSEW)
+        # self.results = tk.Text(self.output, width=100, height=15, wrap='none', state='disabled')
+        # self.results = Table(self.output, dataframe=df)
+        # self.results.show()
+        self.results.grid(column=0, row=0, sticky=tk.NSEW)
         # scrollbars
-        vert_scroll = ttk.Scrollbar(self.output, orient='vertical', command=results.yview)
-        horiz_scroll = ttk.Scrollbar(self.output, orient='horizontal', command=results.xview)
-        vert_scroll.grid(column=1, row=0, sticky=tk.NS)
-        horiz_scroll.grid(column=0, row=1, sticky=tk.EW)
-        results['yscrollcommand'] = vert_scroll.set
-        results['xscrollcommand'] = horiz_scroll.set
+        # vert_scroll = ttk.Scrollbar(self.output, orient='vertical', command=self.results.yview)
+        # horiz_scroll = ttk.Scrollbar(self.output, orient='horizontal', command=self.results.xview)
+        self.vert_scroll.grid(column=1, row=0, sticky=tk.NS)
+        self.horiz_scroll.grid(column=0, row=1, sticky=tk.EW)
+        self.results['yscrollcommand'] = self.vert_scroll.set
+        self.results['xscrollcommand'] = self.horiz_scroll.set
 
     def count_box(self):
         ttk.Label(self.count_frame, text='Count:', anchor='w', width=10).grid(column=0, row=0, sticky=tk.NSEW)
@@ -143,7 +150,6 @@ class SearchUI:
         unowned_count.grid(column=2, row=0, sticky=tk.W, padx=3)
         owned_count.grid(column=3, row=0, sticky=tk.W, padx=3)
         custom_count.grid(column=4, row=0, sticky=tk.W, padx=3)
-        # TODO: implement custom option functionality
         self.count_val.set('all')
 
         self.equal_box = ttk.Combobox(self.count_frame, textvariable=self.equal_val, width=3)
@@ -164,9 +170,72 @@ class SearchUI:
             self.equal_box.grid_remove()
             self.count_num.grid_remove()
 
-    def process(self, *args):
-        # TODO: make the things do things!
-        pass
-
     def run(self):
         self.root.mainloop()
+
+    def process_query(self, *args):
+        filter_list = {}
+        idx_to_val = {
+            '0': self.year_val,
+            '1': self.series_val,
+            '2': self.setname_val,
+            '3': self.num_val,
+            '4': self.name_val,
+            '5': self.team_val,
+            '6': self.feat_val,
+            '7': self.par_val
+        }
+        idx_to_col = {
+            '0': 'year',
+            '1': 'series',
+            '2': 'set',
+            '3': 'number',
+            '4': 'name',
+            '5': 'team',
+            '6': 'features',
+            '7': 'parallels',
+        }
+
+        for idx in range(8):
+            title = idx_to_col[str(idx)]
+            val = idx_to_val[str(idx)].get()
+            if val:
+                if title == 'name':
+                    filter_list['name'] = '((name LIKE :name) OR (normalized LIKE :name))'
+                elif title == 'number':
+                    filter_list['number'] = '(number IS :number)'
+                else:
+                    filter_list[title] = f'({title} LIKE :{title})'
+                self.parameters[title] = f'%{val}%'
+                print(filter_list)
+
+        count_type = self.count_val.get()
+        if count_type == 'unowned':
+            filter_list['count'] = '(count = 0)'
+        elif count_type == 'owned':
+            filter_list['count'] = '(count >= 1)'
+        elif count_type == 'custom':
+            num_op = self.equal_val.get()
+            num = self.count_num_val.get()
+            filter_list['count'] = f'(count {num_op} :count)'
+            self.parameters['count'] = num
+
+        op = ' AND '
+        if self.operator_val == 'any':
+            op = ' OR '
+        self.query = op.join(list(filter_list.values()))
+        self.query_db()
+
+    def query_db(self):
+        sql = "SELECT * FROM cards WHERE " + self.query
+        df = pd.read_sql_query(sql, self.conn, params=self.parameters)
+        # TODO: implement properly pretty printing
+        df = df.drop(columns=['normalized'])
+        # print(df.to_string())
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.max_rows', None)
+        pd.set_option('display.max_colwidth', None)
+        # pd.set_option('display.colheader_justify', 'left')
+        pd.set_option('display.width', 200)
+        df.columns = [x[0].upper() + x[1:] for x in df.columns]
+        self.results.replace('1.0', tk.END, df.to_string(index=False))
